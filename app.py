@@ -443,11 +443,17 @@ def gerar_pdf_funcionario(func, logo_bytes=None, cnpj="", endereco=""):
 st.divider()
 st.subheader("📋 Cadastrar / Calcular Funcionário")
 
+# Inicialização do formulário limpo caso não existam chaves no Session State
+if "form_matricula" not in st.session_state:
+    st.session_state.form_matricula = ""
+if "form_nome" not in st.session_state:
+    st.session_state.form_nome = ""
+
 col1, col2 = st.columns(2)
 
 with col1:
-    matricula = st.text_input("Matrícula", value="1206")
-    nome = st.text_input("Nome do Funcionário", value="Adriana Consuelo")
+    matricula = st.text_input("Matrícula", key="form_matricula", placeholder="Digite a matrícula")
+    nome = st.text_input("Nome do Funcionário", key="form_nome", placeholder="Digite o nome completo")
     
     tipo_contrato = st.selectbox(
         "Tipo de Contrato de Trabalho",
@@ -455,12 +461,12 @@ with col1:
         index=0
     )
     
-    salario_base = st.number_input("Salário Base (R$)", value=12516.65, step=100.0)
+    salario_base = st.number_input("Salário Base (R$)", value=0.0, step=100.0)
     
     st.markdown("**Adicionais da Remuneração:**")
     col_per_chk, col_per_pct = st.columns([1, 1])
     with col_per_chk:
-        periculosidade = st.checkbox("Possui Periculosidade", value=True)
+        periculosidade = st.checkbox("Possui Periculosidade", value=False)
     with col_per_pct:
         pct_periculosidade = st.number_input(
             "Percentual Periculosidade (%)", 
@@ -473,7 +479,7 @@ with col1:
     
     col_ins_chk, col_ins_pct = st.columns([1, 1])
     with col_ins_chk:
-        insalubridade = st.checkbox("Possui Insalubridade")
+        insalubridade = st.checkbox("Possui Insalubridade", value=False)
     with col_ins_pct:
         pct_insalubridade = st.number_input(
             "Percentual Insalubridade (%)", 
@@ -487,7 +493,7 @@ with col1:
     st.markdown("**Férias Vencidas:**")
     col_fer_chk, col_fer_qtd = st.columns([1, 1])
     with col_fer_chk:
-        ferias_vencidas_chk = st.checkbox("Possui Férias Vencidas?", value=True)
+        ferias_vencidas_chk = st.checkbox("Possui Férias Vencidas?", value=False)
     with col_fer_qtd:
         qtd_ferias_vencidas = st.number_input(
             "Nº de Períodos Vencidos", 
@@ -499,8 +505,8 @@ with col1:
         )
 
 with col2:
-    data_admissao = st.date_input("Data de Admissão", value=datetime(2024, 2, 1), format="DD/MM/YYYY")
-    data_demissao = st.date_input("Data de Demissão Provisionada", value=datetime(2026, 12, 31), format="DD/MM/YYYY")
+    data_admissao = st.date_input("Data de Admissão", value=date.today(), format="DD/MM/YYYY")
+    data_demissao = st.date_input("Data de Demissão Provisionada", value=date.today(), format="DD/MM/YYYY")
     
     if tipo_contrato == "Experiência (Rescisão Antecipada Emp.)":
         opcao_prazo_exp = st.selectbox(
@@ -546,235 +552,248 @@ with col2:
         index=0
     )
     
-    saldo_fgts_atual = st.number_input("Saldo Atual do FGTS (R$)", value=40512.04, step=500.0)
-    ultimo_mes_fgts = st.text_input("Último Mês Depositado no Saldo do FGTS (MM/AAAA)", value="06/2026")
-    meses_provisionar = st.number_input("Meses a Provisionar (FGTS futuro)", value=6, min_value=0)
+    saldo_fgts_atual = st.number_input("Saldo Atual do FGTS (R$)", value=0.0, step=500.0)
+    ultimo_mes_fgts = st.text_input("Último Mês Depositado no Saldo do FGTS (MM/AAAA)", value=date.today().strftime("%m/%Y"))
+    meses_provisionar = st.number_input("Meses a Provisionar (FGTS futuro)", value=0, min_value=0)
+
+col_calc, col_clear = st.columns([3, 1])
+
+with col_clear:
+    if st.button("🧹 Limpar Campos", use_container_width=True):
+        st.session_state.form_matricula = ""
+        st.session_state.form_nome = ""
+        st.rerun()
+
+with col_calc:
+    btn_calcular = st.button("➕ Calcular e Salvar Funcionário", type="primary", use_container_width=True)
 
 # --- LÓGICA DE CÁLCULO E SALVAMENTO ---
-if st.button("➕ Calcular e Salvar Funcionário", type="primary"):
-    adicional_peric_mensal = salario_base * (pct_periculosidade / 100.0) if periculosidade else 0.0
-    adicional_insal_mensal = salario_minimo_nacional * (pct_insalubridade / 100.0) if insalubridade else 0.0
-    remuneracao_total = salario_base + adicional_peric_mensal + adicional_insal_mensal
-
-    # 1. Saldo de Salário Desmembrado
-    saldo_salario_base = (salario_base / 30.0) * dias_saldo_salario
-    adicional_peric_saldo = (adicional_peric_mensal / 30.0) * dias_saldo_salario if periculosidade else 0.0
-    adicional_insal_saldo = (adicional_insal_mensal / 30.0) * dias_saldo_salario if insalubridade else 0.0
-    saldo_salario_total = saldo_salario_base + adicional_peric_saldo + adicional_insal_saldo
-
-    # 2. Aviso Prévio x Indenização do Art. 479 CLT (Contrato de Experiência)
-    if tipo_contrato == "Experiência (Rescisão Antecipada Emp.)":
-        dias_aviso = 0
-        dias_faltantes_exp = max(0, (data_fim_experiencia - data_demissao).days)
-        indenizacao_479_val = (remuneracao_total / 30.0) * dias_faltantes_exp * 0.50
-        aviso_previo_valor = 0.0
-        data_fim_projecao = data_fim_experiencia
+if btn_calcular:
+    if not nome.strip() or not matricula.strip():
+        st.error("⚠️ Por favor, informe o Nome e a Matrícula do funcionário antes de calcular.")
     else:
-        dias_faltantes_exp = 0
-        indenizacao_479_val = 0.0
-        dias_aviso, data_fim_projecao = calcular_dias_aviso_previo_com_projecao(data_admissao, data_demissao)
-        aviso_previo_valor = (remuneracao_total / 30.0) * dias_aviso
+        adicional_peric_mensal = salario_base * (pct_periculosidade / 100.0) if periculosidade else 0.0
+        adicional_insal_mensal = salario_minimo_nacional * (pct_insalubridade / 100.0) if insalubridade else 0.0
+        remuneracao_total = salario_base + adicional_peric_mensal + adicional_insal_mensal
 
-    # 3. Multa do Trintídio
-    mes_trintidio = mes_dissidio - 1 if mes_dissidio > 1 else 12
-    multa_trintidio = remuneracao_total if data_fim_projecao.month == mes_trintidio else 0.0
+        # 1. Saldo de Salário Desmembrado
+        saldo_salario_base = (salario_base / 30.0) * dias_saldo_salario
+        adicional_peric_saldo = (adicional_peric_mensal / 30.0) * dias_saldo_salario if periculosidade else 0.0
+        adicional_insal_saldo = (adicional_insal_mensal / 30.0) * dias_saldo_salario if insalubridade else 0.0
+        saldo_salario_total = saldo_salario_base + adicional_peric_saldo + adicional_insal_saldo
 
-    # 4. FGTS Futuro e FGTS s/ Verbas e 13º
-    deposito_fgts_mensal = remuneracao_total * 0.08
-    fgts_futuro_provisionado = deposito_fgts_mensal * meses_provisionar
-    mes_ano_proj_fgts = calcular_mes_ano_projetado_fgts(ultimo_mes_fgts, meses_provisionar)
+        # 2. Aviso Prévio x Indenização do Art. 479 CLT (Contrato de Experiência)
+        if tipo_contrato == "Experiência (Rescisão Antecipada Emp.)":
+            dias_aviso = 0
+            dias_faltantes_exp = max(0, (data_fim_experiencia - data_demissao).days)
+            indenizacao_479_val = (remuneracao_total / 30.0) * dias_faltantes_exp * 0.50
+            aviso_previo_valor = 0.0
+            data_fim_projecao = data_fim_experiencia
+        else:
+            dias_faltantes_exp = 0
+            indenizacao_479_val = 0.0
+            dias_aviso, data_fim_projecao = calcular_dias_aviso_previo_com_projecao(data_admissao, data_demissao)
+            aviso_previo_valor = (remuneracao_total / 30.0) * dias_aviso
 
-    # 5. 13º Salário Trabalhado (Proporcional) x 13º Indenizado (Aviso Prévio)
-    ano_demissao = data_demissao.year
-    inicio_ano_13 = max(data_admissao, date(ano_demissao, 1, 1))
-    
-    avos_13_prop = calcular_avos_periodo(inicio_ano_13, data_demissao, limite_ano=True)
-    decimo_terceiro_prop = (remuneracao_total / 12.0) * avos_13_prop
+        # 3. Multa do Trintídio
+        mes_trintidio = mes_dissidio - 1 if mes_dissidio > 1 else 12
+        multa_trintidio = remuneracao_total if data_fim_projecao.month == mes_trintidio else 0.0
 
-    # Trava rigorosa: Se for contrato de experiência (dias_aviso == 0), avos_13_inden e o valor correspondente são estritamente 0
-    if tipo_contrato == "Experiência (Rescisão Antecipada Emp.)":
-        avos_13_inden = 0
-        decimo_terceiro_inden = 0.0
-    else:
-        avos_13_inden = calcular_avos_13_indenizado_direto(dias_aviso) if dias_aviso > 0 else 0
-        decimo_terceiro_inden = (remuneracao_total / 12.0) * avos_13_inden if dias_aviso > 0 else 0.0
+        # 4. FGTS Futuro e FGTS s/ Verbas e 13º
+        deposito_fgts_mensal = remuneracao_total * 0.08
+        fgts_futuro_provisionado = deposito_fgts_mensal * meses_provisionar
+        mes_ano_proj_fgts = calcular_mes_ano_projetado_fgts(ultimo_mes_fgts, meses_provisionar)
 
-    decimo_terceiro_total = decimo_terceiro_prop + decimo_terceiro_inden
-
-    # 6. Férias Proporcionais (Trabalhadas) x Férias Indenizadas (Aviso Prévio)
-    anos_completos = relativedelta(data_demissao, data_admissao).years
-    inicio_aquisitivo_prop = data_admissao + relativedelta(years=anos_completos)
-    if inicio_aquisitivo_prop > data_demissao:
-        inicio_aquisitivo_prop = data_admissao + relativedelta(years=anos_completos - 1)
-
-    avos_ferias_prop = calcular_avos_periodo(inicio_aquisitivo_prop, data_demissao, limite_ano=True)
-    ferias_prop_com_terco = ((remuneracao_total / 12.0) * avos_ferias_prop) * (4.0 / 3.0)
-
-    # Trava rigorosa: Se for contrato de experiência, não há avos ou valor de férias indenizadas decorrentes de aviso
-    if tipo_contrato == "Experiência (Rescisão Antecipada Emp.)":
-        avos_ferias_inden = 0
-        ferias_inden_com_terco = 0.0
-    else:
-        avos_ferias_total = calcular_avos_periodo(inicio_aquisitivo_prop, data_fim_projecao, limite_ano=False)
-        avos_ferias_inden = max(0, avos_ferias_total - avos_ferias_prop)
-        ferias_inden_com_terco = ((remuneracao_total / 12.0) * avos_ferias_inden) * (4.0 / 3.0)
-
-    # 7. Férias Vencidas
-    periodos_vencidos = qtd_ferias_vencidas if ferias_vencidas_chk else 0
-    ferias_vencidas_com_terco = (remuneracao_total * (4.0 / 3.0)) * periodos_vencidos
-
-    # 8. FGTS sobre 13º e sobre Verbas Rescisórias
-    fgts_decimo_terceiro = decimo_terceiro_total * 0.08
-    fgts_verbas_rescisorias = (aviso_previo_valor + saldo_salario_total) * 0.08
-
-    # 9. Multa de 40% do FGTS
-    base_total_fgts_multa = (
-        saldo_fgts_atual 
-        + fgts_futuro_provisionado 
-        + fgts_verbas_rescisorias 
-        + fgts_decimo_terceiro
-    )
-    multa_fgts_40 = base_total_fgts_multa * 0.40
-
-    # 10. INSS e IRRF COMPLETO 2026
-    base_inss_saldo = saldo_salario_total
-    inss_saldo = calcular_inss_progressivo(base_inss_saldo, df_inss_edited, teto_desconto_inss)
-    inss_13 = calcular_inss_progressivo(decimo_terceiro_total, df_inss_edited, teto_desconto_inss)
-
-    deducao_dep_total = qtd_dependentes_irrf * deducao_por_dependente_unitaria
-
-    irrf_saldo, base_irrf_saldo, regra_irrf_saldo = calcular_irrf_completo_2026(
-        renda_bruta=base_inss_saldo,
-        valor_inss=inss_saldo,
-        qtd_dep=qtd_dependentes_irrf,
-        deducao_dep_unitaria=deducao_por_dependente_unitaria,
-        valor_simplificado=desconto_simplificado_mensal,
-        df_irrf=df_irrf_edited
-    )
-
-    irrf_13, base_irrf_13, regra_irrf_13 = calcular_irrf_completo_2026(
-        renda_bruta=decimo_terceiro_prop,
-        valor_inss=inss_13,
-        qtd_dep=qtd_dependentes_irrf,
-        deducao_dep_unitaria=deducao_por_dependente_unitaria,
-        valor_simplificado=desconto_simplificado_mensal,
-        df_irrf=df_irrf_edited
-    )
-    
-    total_descontos_encargos = inss_saldo + inss_13 + irrf_saldo + irrf_13
-
-    # Custo Total Geral da FACC (EXCLUI o FGTS a Provisionar do custo direto da rescisão)
-    total_rescisao_bruto_facc = (
-        saldo_salario_total
-        + ferias_vencidas_com_terco
-        + ferias_prop_com_terco
-        + decimo_terceiro_prop
-        + aviso_previo_valor
-        + indenizacao_479_val
-        + ferias_inden_com_terco
-        + decimo_terceiro_inden
-        + fgts_verbas_rescisorias
-        + fgts_decimo_terceiro
-        + multa_fgts_40
-        + multa_trintidio
-    )
-
-    # TRCT Bruto Pago Direto ao Empregado
-    trct_bruto_empregado = (
-        saldo_salario_total
-        + ferias_vencidas_com_terco
-        + ferias_prop_com_terco
-        + decimo_terceiro_prop
-        + aviso_previo_valor
-        + indenizacao_479_val
-        + ferias_inden_com_terco
-        + decimo_terceiro_inden
-        + multa_trintidio
-    )
-
-    total_encargos_fgts = (
-        fgts_verbas_rescisorias 
-        + fgts_decimo_terceiro 
-        + multa_fgts_40
-    )
-
-    liquido_a_pagar = max(0.0, trct_bruto_empregado - total_descontos_encargos)
-
-    novo_func = {
-        "Matrícula": str(matricula).strip(),
-        "Nome": nome,
-        "Tipo de Contrato": tipo_contrato,
-        "Prazo Experiência Selecionado": opcao_prazo_exp,
-        "Dias Experiência": dias_duracao_exp,
-        "Salário Base (R$)": salario_base,
-        "Periculosidade (%)": pct_periculosidade if periculosidade else 0.0,
-        "Insalubridade (%)": pct_insalubridade if insalubridade else 0.0,
-        "Remuneração Total (R$)": remuneracao_total,
-        "Dependentes IRRF": qtd_dependentes_irrf,
-        "Dedução Dependentes Total (R$)": deducao_dep_total,
-        "Teto INSS Aplicado (R$)": teto_desconto_inss,
-        "Data Admissão": data_admissao.strftime("%d/%m/%Y"),
-        "Data Demissão": data_demissao.strftime("%d/%m/%Y"),
-        "Data Término / Projeção": data_fim_projecao.strftime("%d/%m/%Y"),
-        "Dias Saldo Salário": dias_saldo_salario,
-        "Saldo de Salário Base (R$)": saldo_salario_base,
-        "Adicional Periculosidade Saldo (R$)": adicional_peric_saldo,
-        "Adicional Insalubridade Saldo (R$)": adicional_insal_saldo,
-        "Saldo de Salário Total (R$)": saldo_salario_total,
-        "Períodos Férias Vencidas": periodos_vencidos,
-        "Férias Vencidas + 1/3 (R$)": ferias_vencidas_com_terco,
-        "Avos Férias Prop": avos_ferias_prop,
-        "Férias Proporcionais + 1/3 (R$)": ferias_prop_com_terco,
-        "Avos 13º Prop": avos_13_prop,
-        "13º Proporcional (R$)": decimo_terceiro_prop,
-        "Dias Aviso Prévio": dias_aviso,
-        "Aviso Prévio (R$)": aviso_previo_valor,
-        "Dias Faltantes Experiência": dias_faltantes_exp,
-        "Indenização 479 CLT (R$)": indenizacao_479_val,
-        "Avos Férias Aviso Indenizado": avos_ferias_inden,
-        "Férias Indenizadas + 1/3 (R$)": ferias_inden_com_terco,
-        "Avos 13º Aviso Indenizado": avos_13_inden,
-        "13º Indenizado (R$)": decimo_terceiro_inden,
-        "Último Mês FGTS": ultimo_mes_fgts,
-        "Meses Provisionados FGTS": meses_provisionar,
-        "Mês/Ano Projetado FGTS": mes_ano_proj_fgts,
-        "Saldo FGTS Atual (R$)": saldo_fgts_atual,
-        "FGTS Futuro Provisionado (R$)": fgts_futuro_provisionado,
-        "FGTS s/ Verbas Rescisórias (R$)": fgts_verbas_rescisorias,
-        "FGTS s/ 13º (R$)": fgts_decimo_terceiro,
-        "Base Total FGTS p/ Multa (R$)": base_total_fgts_multa,
-        "Multa 40% FGTS (R$)": multa_fgts_40,
-        "Multa Trintídio (R$)": multa_trintidio,
-        "Base INSS Saldo (R$)": base_inss_saldo,
-        "INSS Saldo (R$)": inss_saldo,
-        "INSS 13º (R$)": inss_13,
-        "Base IRRF Saldo (R$)": base_irrf_saldo,
-        "Regra IRRF Saldo": regra_irrf_saldo,
-        "IRRF Saldo (R$)": irrf_saldo,
-        "Base IRRF 13º (R$)": base_irrf_13,
-        "Regra IRRF 13º": regra_irrf_13,
-        "IRRF 13º (R$)": irrf_13,
-        "Total Encargos INSS e IRRF (R$)": total_descontos_encargos,
-        "TRCT Bruto (R$)": trct_bruto_empregado,
-        "Líquido a Pagar (R$)": liquido_a_pagar,
-        "Total Encargos FGTS (R$)": total_encargos_fgts,
-        "Custo Total (R$)": total_rescisao_bruto_facc
-    }
-
-    index_existente = -1
-    for idx, f in enumerate(st.session_state.lista_funcionarios):
-        if str(f["Matrícula"]).strip() == str(matricula).strip():
-            index_existente = idx
-            break
-
-    if index_existente != -1:
-        st.session_state.lista_funcionarios[index_existente] = novo_func
-        st.success(f"Dados do funcionário **{nome}** (Matrícula: {matricula}) foram **atualizados/substituídos** com sucesso!")
-    else:
-        st.session_state.lista_funcionarios.append(novo_func)
-        st.success(f"Funcionário **{nome}** adicionado com sucesso!")
+        # 5. 13º Salário Trabalhado (Proporcional) x 13º Indenizado (Aviso Prévio)
+        ano_demissao = data_demissao.year
+        inicio_ano_13 = max(data_admissao, date(ano_demissao, 1, 1))
         
-    st.rerun()
+        avos_13_prop = calcular_avos_periodo(inicio_ano_13, data_demissao, limite_ano=True)
+        decimo_terceiro_prop = (remuneracao_total / 12.0) * avos_13_prop
+
+        if tipo_contrato == "Experiência (Rescisão Antecipada Emp.)":
+            avos_13_inden = 0
+            decimo_terceiro_inden = 0.0
+        else:
+            avos_13_inden = calcular_avos_13_indenizado_direto(dias_aviso) if dias_aviso > 0 else 0
+            decimo_terceiro_inden = (remuneracao_total / 12.0) * avos_13_inden if dias_aviso > 0 else 0.0
+
+        decimo_terceiro_total = decimo_terceiro_prop + decimo_terceiro_inden
+
+        # 6. Férias Proporcionais (Trabalhadas) x Férias Indenizadas (Aviso Prévio)
+        anos_completos = relativedelta(data_demissao, data_admissao).years
+        inicio_aquisitivo_prop = data_admissao + relativedelta(years=anos_completos)
+        if inicio_aquisitivo_prop > data_demissao:
+            inicio_aquisitivo_prop = data_admissao + relativedelta(years=anos_completos - 1)
+
+        avos_ferias_prop = calcular_avos_periodo(inicio_aquisitivo_prop, data_demissao, limite_ano=True)
+        ferias_prop_com_terco = ((remuneracao_total / 12.0) * avos_ferias_prop) * (4.0 / 3.0)
+
+        if tipo_contrato == "Experiência (Rescisão Antecipada Emp.)":
+            avos_ferias_inden = 0
+            ferias_inden_com_terco = 0.0
+        else:
+            avos_ferias_total = calcular_avos_periodo(inicio_aquisitivo_prop, data_fim_projecao, limite_ano=False)
+            avos_ferias_inden = max(0, avos_ferias_total - avos_ferias_prop)
+            ferias_inden_com_terco = ((remuneracao_total / 12.0) * avos_ferias_inden) * (4.0 / 3.0)
+
+        # 7. Férias Vencidas
+        periodos_vencidos = qtd_ferias_vencidas if ferias_vencidas_chk else 0
+        ferias_vencidas_com_terco = (remuneracao_total * (4.0 / 3.0)) * periodos_vencidos
+
+        # 8. FGTS sobre 13º e sobre Verbas Rescisórias
+        fgts_decimo_terceiro = decimo_terceiro_total * 0.08
+        fgts_verbas_rescisorias = (aviso_previo_valor + saldo_salario_total) * 0.08
+
+        # 9. Multa de 40% do FGTS
+        base_total_fgts_multa = (
+            saldo_fgts_atual 
+            + fgts_futuro_provisionado 
+            + fgts_verbas_rescisorias 
+            + fgts_decimo_terceiro
+        )
+        multa_fgts_40 = base_total_fgts_multa * 0.40
+
+        # 10. INSS e IRRF COMPLETO 2026
+        base_inss_saldo = saldo_salario_total
+        inss_saldo = calcular_inss_progressivo(base_inss_saldo, df_inss_edited, teto_desconto_inss)
+        inss_13 = calcular_inss_progressivo(decimo_terceiro_total, df_inss_edited, teto_desconto_inss)
+
+        deducao_dep_total = qtd_dependentes_irrf * deducao_por_dependente_unitaria
+
+        irrf_saldo, base_irrf_saldo, regra_irrf_saldo = calcular_irrf_completo_2026(
+            renda_bruta=base_inss_saldo,
+            valor_inss=inss_saldo,
+            qtd_dep=qtd_dependentes_irrf,
+            deducao_dep_unitaria=deducao_por_dependente_unitaria,
+            valor_simplificado=desconto_simplificado_mensal,
+            df_irrf=df_irrf_edited
+        )
+
+        irrf_13, base_irrf_13, regra_irrf_13 = calcular_irrf_completo_2026(
+            renda_bruta=decimo_terceiro_prop,
+            valor_inss=inss_13,
+            qtd_dep=qtd_dependentes_irrf,
+            deducao_dep_unitaria=deducao_por_dependente_unitaria,
+            valor_simplificado=desconto_simplificado_mensal,
+            df_irrf=df_irrf_edited
+        )
+        
+        total_descontos_encargos = inss_saldo + inss_13 + irrf_saldo + irrf_13
+
+        total_rescisao_bruto_facc = (
+            saldo_salario_total
+            + ferias_vencidas_com_terco
+            + ferias_prop_com_terco
+            + decimo_terceiro_prop
+            + aviso_previo_valor
+            + indenizacao_479_val
+            + ferias_inden_com_terco
+            + decimo_terceiro_inden
+            + fgts_verbas_rescisorias
+            + fgts_decimo_terceiro
+            + multa_fgts_40
+            + multa_trintidio
+        )
+
+        trct_bruto_empregado = (
+            saldo_salario_total
+            + ferias_vencidas_com_terco
+            + ferias_prop_com_terco
+            + decimo_terceiro_prop
+            + aviso_previo_valor
+            + indenizacao_479_val
+            + ferias_inden_com_terco
+            + decimo_terceiro_inden
+            + multa_trintidio
+        )
+
+        total_encargos_fgts = (
+            fgts_verbas_rescisorias 
+            + fgts_decimo_terceiro 
+            + multa_fgts_40
+        )
+
+        liquido_a_pagar = max(0.0, trct_bruto_empregado - total_descontos_encargos)
+
+        novo_func = {
+            "Matrícula": str(matricula).strip(),
+            "Nome": nome,
+            "Tipo de Contrato": tipo_contrato,
+            "Prazo Experiência Selecionado": opcao_prazo_exp,
+            "Dias Experiência": dias_duracao_exp,
+            "Salário Base (R$)": salario_base,
+            "Periculosidade (%)": pct_periculosidade if periculosidade else 0.0,
+            "Insalubridade (%)": pct_insalubridade if insalubridade else 0.0,
+            "Remuneração Total (R$)": remuneracao_total,
+            "Dependentes IRRF": qtd_dependentes_irrf,
+            "Dedução Dependentes Total (R$)": deducao_dep_total,
+            "Teto INSS Aplicado (R$)": teto_desconto_inss,
+            "Data Admissão": data_admissao.strftime("%d/%m/%Y"),
+            "Data Demissão": data_demissao.strftime("%d/%m/%Y"),
+            "Data Término / Projeção": data_fim_projecao.strftime("%d/%m/%Y"),
+            "Dias Saldo Salário": dias_saldo_salario,
+            "Saldo de Salário Base (R$)": saldo_salario_base,
+            "Adicional Periculosidade Saldo (R$)": adicional_peric_saldo,
+            "Adicional Insalubridade Saldo (R$)": adicional_insal_saldo,
+            "Saldo de Salário Total (R$)": saldo_salario_total,
+            "Períodos Férias Vencidas": periodos_vencidos,
+            "Férias Vencidas + 1/3 (R$)": ferias_vencidas_com_terco,
+            "Avos Férias Prop": avos_ferias_prop,
+            "Férias Proporcionais + 1/3 (R$)": ferias_prop_com_terco,
+            "Avos 13º Prop": avos_13_prop,
+            "13º Proporcional (R$)": decimo_terceiro_prop,
+            "Dias Aviso Prévio": dias_aviso,
+            "Aviso Prévio (R$)": aviso_previo_valor,
+            "Dias Faltantes Experiência": dias_faltantes_exp,
+            "Indenização 479 CLT (R$)": indenizacao_479_val,
+            "Avos Férias Aviso Indenizado": avos_ferias_inden,
+            "Férias Indenizadas + 1/3 (R$)": ferias_inden_com_terco,
+            "Avos 13º Aviso Indenizado": avos_13_inden,
+            "13º Indenizado (R$)": decimo_terceiro_inden,
+            "Último Mês FGTS": ultimo_mes_fgts,
+            "Meses Provisionados FGTS": meses_provisionar,
+            "Mês/Ano Projetado FGTS": mes_ano_proj_fgts,
+            "Saldo FGTS Atual (R$)": saldo_fgts_atual,
+            "FGTS Futuro Provisionado (R$)": fgts_futuro_provisionado,
+            "FGTS s/ Verbas Rescisórias (R$)": fgts_verbas_rescisorias,
+            "FGTS s/ 13º (R$)": fgts_decimo_terceiro,
+            "Base Total FGTS p/ Multa (R$)": base_total_fgts_multa,
+            "Multa 40% FGTS (R$)": multa_fgts_40,
+            "Multa Trintídio (R$)": multa_trintidio,
+            "Base INSS Saldo (R$)": base_inss_saldo,
+            "INSS Saldo (R$)": inss_saldo,
+            "INSS 13º (R$)": inss_13,
+            "Base IRRF Saldo (R$)": base_irrf_saldo,
+            "Regra IRRF Saldo": regra_irrf_saldo,
+            "IRRF Saldo (R$)": irrf_saldo,
+            "Base IRRF 13º (R$)": base_irrf_13,
+            "Regra IRRF 13º": regra_irrf_13,
+            "IRRF 13º (R$)": irrf_13,
+            "Total Encargos INSS e IRRF (R$)": total_descontos_encargos,
+            "TRCT Bruto (R$)": trct_bruto_empregado,
+            "Líquido a Pagar (R$)": liquido_a_pagar,
+            "Total Encargos FGTS (R$)": total_encargos_fgts,
+            "Custo Total (R$)": total_rescisao_bruto_facc
+        }
+
+        index_existente = -1
+        for idx, f in enumerate(st.session_state.lista_funcionarios):
+            if str(f["Matrícula"]).strip() == str(matricula).strip():
+                index_existente = idx
+                break
+
+        if index_existente != -1:
+            st.session_state.lista_funcionarios[index_existente] = novo_func
+            st.success(f"Dados do funcionário **{nome}** (Matrícula: {matricula}) foram **atualizados/substituídos** com sucesso!")
+        else:
+            st.session_state.lista_funcionarios.append(novo_func)
+            st.success(f"Funcionário **{nome}** adicionado com sucesso!")
+            
+        # Limpa os campos do formulário para o próximo lançamento
+        st.session_state.form_matricula = ""
+        st.session_state.form_nome = ""
+        st.rerun()
 
 # --- EXIBIÇÃO DA LISTA DE FUNCIONÁRIOS E EXPORTAÇÃO ---
 st.divider()
@@ -783,10 +802,8 @@ st.subheader("📊 Lista de Funcionários Provisionados")
 if len(st.session_state.lista_funcionarios) > 0:
     df_lista = pd.DataFrame(st.session_state.lista_funcionarios)
     
-    # Exibição formatada em moeda brasileira para a tabela do Streamlit
     df_display = df_lista.copy()
     
-    # Remove colunas desnecessárias de auditoria e duplicatas de datas
     colunas_remover_fixas = [
         "Teto INSS Aplicado (R$)", 
         "Remuneração Total (R$)", 
@@ -796,7 +813,6 @@ if len(st.session_state.lista_funcionarios) > 0:
     ]
     df_display = df_display.drop(columns=[c for c in colunas_remover_fixas if c in df_display.columns])
 
-    # Filtra colunas de adicionais e desmembramentos zerados para manter a tabela limpa
     colunas_remover_se_zerado = []
     if (df_lista["Periculosidade (%)"] == 0).all():
         colunas_remover_se_zerado.extend(["Periculosidade (%)", "Adicional Periculosidade Saldo (R$)"])
@@ -806,7 +822,6 @@ if len(st.session_state.lista_funcionarios) > 0:
     if colunas_remover_se_zerado:
         df_display = df_display.drop(columns=[c for c in colunas_remover_se_zerado if c in df_display.columns])
 
-    # Reordenar colunas finais para garantir a ordem exata desejada
     colunas_finais_ordenadas = ["TRCT Bruto (R$)", "Líquido a Pagar (R$)", "Total Encargos FGTS (R$)", "Custo Total (R$)"]
     colunas_demais = [c for c in df_display.columns if c not in colunas_finais_ordenadas]
     df_display = df_display[colunas_demais + colunas_finais_ordenadas]

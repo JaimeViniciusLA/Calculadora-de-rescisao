@@ -80,7 +80,7 @@ salario_min_base, teto_inss_base, deducao_dep_base, simplificado_base, df_inss_b
 if "lista_funcionarios" not in st.session_state:
     st.session_state.lista_funcionarios = []
 
-# --- BARRA LATERAL ---
+# --- BARRA LATERAL (TABELAS MANTIDAS PRÉ-CARREGADAS) ---
 st.sidebar.header("🏢 Dados da Empresa (FACC)")
 cnpj_empresa = st.sidebar.text_input("CNPJ da Empresa", value="06.220.430/0001-03")
 endereco_empresa = st.sidebar.text_input("Endereço/Cidade", value="Rio de Janeiro - RJ")
@@ -124,7 +124,6 @@ def calcular_irrf_completo_2026(renda_bruta, valor_inss, qtd_dep, deducao_dep_un
     if renda_bruta <= 0:
         return 0.0, 0.0, "Isento"
     
-    # 1. Comparação entre Deduções Legais (INSS + Dependentes) x Desconto Simplificado
     deducao_legais = valor_inss + (qtd_dep * deducao_dep_unitaria)
     
     if valor_simplificado > deducao_legais:
@@ -134,7 +133,6 @@ def calcular_irrf_completo_2026(renda_bruta, valor_inss, qtd_dep, deducao_dep_un
         base_calculo = max(0.0, renda_bruta - deducao_legais)
         regra_aplicada = "Deduções Legais"
 
-    # 2. Apuração inicial pela Tabela Progressiva Tradicional
     irrf_bruto = 0.0
     for _, row in df_irrf.iterrows():
         ate = row["Até (R$)"]
@@ -147,7 +145,6 @@ def calcular_irrf_completo_2026(renda_bruta, valor_inss, qtd_dep, deducao_dep_un
 
     irrf_bruto = max(0.0, irrf_bruto)
 
-    # 3. Aplicação do Redutor da Lei da Isenção R$ 5.000 / R$ 7.350 (2026)
     if base_calculo <= 5000.00:
         redutor_extra = min(irrf_bruto, 312.89)
     elif 5000.00 < base_calculo <= 7350.00:
@@ -202,6 +199,8 @@ def calcular_avos_13_indenizado_direto(dias_aviso):
 
 def calcular_mes_ano_projetado_fgts(str_ultimo_mes, meses_provisionar):
     try:
+        if not str_ultimo_mes or '/' not in str_ultimo_mes:
+            return ""
         partes = str_ultimo_mes.strip().split('/')
         mes = int(partes[0])
         ano = int(partes[1])
@@ -284,7 +283,7 @@ def gerar_pdf_funcionario(func, logo_bytes=None, cnpj="", endereco=""):
         [Paragraph("<b>Periculosidade:</b>", bold_style), Paragraph(f"{func['Periculosidade (%)']}%", body_style), Paragraph("<b>Avos 13º (Trab / Av. Inden):</b>", bold_style), Paragraph(f"{func['Avos 13º Prop']}/12  |  {func['Avos 13º Aviso Indenizado']}/12", body_style)],
         [Paragraph("<b>Insalubridade:</b>", bold_style), Paragraph(f"{func['Insalubridade (%)']}%", body_style), Paragraph("<b>Avos Férias (Trab / Av. Inden):</b>", bold_style), Paragraph(f"{func['Avos Férias Prop']}/12  |  {func['Avos Férias Aviso Indenizado']}/12", body_style)],
         [Paragraph("<b>Remuneração Total:</b>", bold_style), Paragraph(f"<b>{fmt_moeda(func['Remuneração Total (R$)'])}</b>", bold_style), Paragraph("<b>Dependentes IRRF:</b>", bold_style), Paragraph(f"{func['Dependentes IRRF']} (Dedução: {fmt_moeda(func['Dedução Dependentes Total (R$)'])})", body_style)],
-        [Paragraph("<b>Saldo FGTS em ({0}):</b>".format(func['Último Mês FGTS']), bold_style), Paragraph(fmt_moeda(func['Saldo FGTS Atual (R$)']), body_style), Paragraph("<b>FGTS a Provisionar ({0} mes(es)):</b>".format(func['Meses Provisionados FGTS']), bold_style), Paragraph(f"{fmt_moeda(func['FGTS Futuro Provisionado (R$)'])} (Até {func['Mês/Ano Projetado FGTS']})", body_style)]
+        [Paragraph("<b>Saldo FGTS em ({0}):</b>".format(func['Último Mês FGTS'] if func['Último Mês FGTS'] else "N/A"), bold_style), Paragraph(fmt_moeda(func['Saldo FGTS Atual (R$)']), body_style), Paragraph("<b>FGTS a Provisionar ({0} mes(es)):</b>".format(func['Meses Provisionados FGTS']), bold_style), Paragraph(f"{fmt_moeda(func['FGTS Futuro Provisionado (R$)'])} (Até {func['Mês/Ano Projetado FGTS'] if func['Mês/Ano Projetado FGTS'] else 'N/A'})", body_style)]
     ]
 
     t_cadastrais = Table(dados_cadastrais, colWidths=[110, 150, 140, 130])
@@ -439,15 +438,16 @@ def gerar_pdf_funcionario(func, logo_bytes=None, cnpj="", endereco=""):
     buffer.seek(0)
     return buffer
 
-# --- FORMULÁRIO PRINCIPAL ---
+# --- FORMULÁRIO PRINCIPAL (INICIALIZAÇÃO ZERADA/LIMPA) ---
 st.divider()
 st.subheader("📋 Cadastrar / Calcular Funcionário")
 
-# Inicialização do formulário limpo caso não existam chaves no Session State
 if "form_matricula" not in st.session_state:
     st.session_state.form_matricula = ""
 if "form_nome" not in st.session_state:
     st.session_state.form_nome = ""
+if "form_ultimo_mes_fgts" not in st.session_state:
+    st.session_state.form_ultimo_mes_fgts = ""
 
 col1, col2 = st.columns(2)
 
@@ -470,7 +470,7 @@ with col1:
     with col_per_pct:
         pct_periculosidade = st.number_input(
             "Percentual Periculosidade (%)", 
-            value=30.0, 
+            value=0.0, 
             min_value=0.0, 
             max_value=100.0, 
             step=5.0,
@@ -538,7 +538,7 @@ with col2:
 
     col_sal_dias, col_dep_ir = st.columns([1, 1])
     with col_sal_dias:
-        dias_saldo_salario = st.number_input("Dias de Saldo de Salário", value=30, min_value=1, max_value=31, step=1)
+        dias_saldo_salario = st.number_input("Dias de Saldo de Salário", value=0, min_value=0, max_value=31, step=1)
     with col_dep_ir:
         qtd_dependentes_irrf = st.number_input("Número de Dependentes IRRF", value=0, min_value=0, max_value=10, step=1)
 
@@ -553,7 +553,7 @@ with col2:
     )
     
     saldo_fgts_atual = st.number_input("Saldo Atual do FGTS (R$)", value=0.0, step=500.0)
-    ultimo_mes_fgts = st.text_input("Último Mês Depositado no Saldo do FGTS (MM/AAAA)", value=date.today().strftime("%m/%Y"))
+    ultimo_mes_fgts = st.text_input("Último Mês Depositado no Saldo do FGTS (MM/AAAA)", key="form_ultimo_mes_fgts", placeholder="Ex: 08/2026")
     meses_provisionar = st.number_input("Meses a Provisionar (FGTS futuro)", value=0, min_value=0)
 
 col_calc, col_clear = st.columns([3, 1])
@@ -562,6 +562,7 @@ with col_clear:
     if st.button("🧹 Limpar Campos", use_container_width=True):
         st.session_state.form_matricula = ""
         st.session_state.form_nome = ""
+        st.session_state.form_ultimo_mes_fgts = ""
         st.rerun()
 
 with col_calc:
@@ -790,9 +791,9 @@ if btn_calcular:
             st.session_state.lista_funcionarios.append(novo_func)
             st.success(f"Funcionário **{nome}** adicionado com sucesso!")
             
-        # Limpa os campos do formulário para o próximo lançamento
         st.session_state.form_matricula = ""
         st.session_state.form_nome = ""
+        st.session_state.form_ultimo_mes_fgts = ""
         st.rerun()
 
 # --- EXIBIÇÃO DA LISTA DE FUNCIONÁRIOS E EXPORTAÇÃO ---
